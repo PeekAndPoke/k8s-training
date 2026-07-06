@@ -1,0 +1,18 @@
+
+qa-service release "{{ .Release.Name }}" deployed to namespace "{{ .Release.Namespace }}".
+
+App version: {{ .Values.app.version }}
+
+Watch it come up:
+  kubectl get pods -n {{ .Release.Namespace }} -w
+
+{{- if .Values.gateway.ingress.enabled }}
+
+Hit the gateway through the Ingress:
+  curl -s http://{{ .Values.gateway.ingress.host }}/hello | jq .
+{{- else }}
+
+Ingress is disabled. Port-forward the gateway instead:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-gateway 8080:8080
+  curl -s http://localhost:8080/hello | jq .
+{{- end }}

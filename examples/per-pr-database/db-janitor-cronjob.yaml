@@ -1,0 +1,39 @@
+# Backstop: a nightly janitor that drops orphaned per-PR databases whose PR no longer exists.
+#
+# WHY: hooks can fail (network blip, aborted sync, Job error). Never rely on delete-hooks alone —
+# always have a reconciling sweep so leaks get cleaned up eventually. Belt AND suspenders.
+#
+# This lives on the SHARED side (deployed once, next to the shared Arango), not per-PR.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pr-db-janitor
+spec:
+  schedule: "0 3 * * *"              # 03:00 daily
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: janitor
+              image: curlimages/curl:8.11.0
+              env:
+                - name: ARANGO_URL
+                  value: http://arango.shared:8529
+                - name: ADMIN_PW
+                  valueFrom:
+                    secretKeyRef: { name: arango-admin, key: password }
+                - name: GITHUB_TOKEN            # to list which PRs are still open
+                  valueFrom:
+                    secretKeyRef: { name: github-api, key: token }
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  # Outline (a real impl would be a small script):
+                  #   1. dbs=$(GET  $ARANGO_URL/_api/database)                 # all databases
+                  #   2. open=$(GET https://api.github.com/repos/OWNER/REPO/pulls?state=open)
+                  #   3. for each db matching '^pr-<n>$':
+                  #        if <n> NOT in $open:  DELETE $ARANGO_URL/_api/database/pr-<n>
+                  echo "janitor: reconcile pr-* databases against open PRs, drop orphans"

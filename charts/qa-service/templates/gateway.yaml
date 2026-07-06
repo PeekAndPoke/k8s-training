@@ -1,0 +1,87 @@
+# ============================ GATEWAY (public role) ============================
+# Deployment + Service + Ingress. This is the only component exposed outside the cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-gateway
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-gateway
+    {{- include "qa.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.gateway.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}-gateway
+    spec:
+      containers:
+        - name: gateway
+          image: "{{ .Values.app.image.repository }}:{{ .Values.app.image.tag }}"
+          imagePullPolicy: {{ .Values.app.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: gateway
+            - name: APP_VERSION
+              value: {{ .Values.app.version | quote }}
+            # Downstream addresses = in-cluster Service DNS names. THIS is service discovery.
+            - name: BACKEND_URL
+              value: http://{{ .Release.Name }}-backend:8080
+            - name: HTTPBIN_URL
+              value: http://{{ .Release.Name }}-httpbin:8080
+            - name: WHOAMI_URL
+              value: http://{{ .Release.Name }}-whoami:80
+          # readiness gates traffic; liveness restarts a wedged container. Both hit Actuator.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-gateway
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-gateway
+    {{- include "qa.labels" . | nindent 4 }}
+spec:
+  # ClusterIP (default type): a stable virtual IP + DNS name load-balancing to the pods
+  # whose labels match this selector. Pods come and go; this name does not.
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}-gateway
+  ports:
+    - port: 8080
+      targetPort: 8080
+{{- if .Values.gateway.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-gateway
+  labels:
+    {{- include "qa.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.gateway.ingress.className }}
+  rules:
+    - host: {{ .Values.gateway.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-gateway
+                port:
+                  number: 8080
+{{- end }}

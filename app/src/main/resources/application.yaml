@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: qa-service
+  # If no profile is set, behave as the gateway so a bare `docker run` still serves /hello.
+  profiles:
+    default: gateway
+  # Finish in-flight requests before shutting down — matters for clean rolling updates in K8s.
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+server:
+  shutdown: graceful
+
+# The version string. Overridden per deployment via APP_VERSION — this is what we watch change
+# during rolling updates. Coming from ConfigMap/Helm values later.
+app:
+  version: ${APP_VERSION:0.0.0-dev}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true        # exposes /actuator/health/{liveness,readiness} for K8s probes
+  health:
+    # Backend degrades gracefully if Redis is down (returns "redis-unavailable"), so Redis
+    # should NOT gate readiness. Disable the Redis health indicator for both roles.
+    redis:
+      enabled: false
+
+---
+# ---------- GATEWAY role ----------
+spring:
+  config:
+    activate:
+      on-profile: gateway
+
+# Where the gateway finds its downstreams. In K8s these become in-cluster Service DNS names,
+# injected via env from the Helm chart. Defaults here are for local (docker run) testing.
+gateway:
+  backend-url: ${BACKEND_URL:http://localhost:8081}
+  httpbin-url: ${HTTPBIN_URL:http://localhost:8082}
+  whoami-url: ${WHOAMI_URL:http://localhost:8083}
+
+---
+# ---------- BACKEND role ----------
+spring:
+  config:
+    activate:
+      on-profile: backend
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}

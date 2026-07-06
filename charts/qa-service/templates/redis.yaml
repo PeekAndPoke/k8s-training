@@ -1,0 +1,66 @@
+{{- if .Values.redis.enabled }}
+# ============================ REDIS (stateful backing service) ================
+# Secret holds the password; the Deployment reads it via env and passes it to redis-server.
+# NOTE: this Redis has no PersistentVolume — data is lost if the pod restarts. That's fine
+# for a hit-counter demo and keeps per-PR environments cheap. A real Redis would use a
+# StatefulSet + PVC.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-redis
+    {{- include "qa.labels" . | nindent 4 }}
+type: Opaque
+stringData:                       # stringData = plaintext in; Kubernetes base64-encodes it for you
+  redis-password: {{ .Values.redis.password | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-redis
+    {{- include "qa.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}-redis
+    spec:
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          imagePullPolicy: IfNotPresent
+          # $(REDIS_PASSWORD) is expanded by Kubernetes from the env var below.
+          args: ["--requirepass", "$(REDIS_PASSWORD)"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-redis
+                  key: redis-password
+          ports:
+            - containerPort: 6379
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-redis
+    {{- include "qa.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+{{- end }}

@@ -1,0 +1,8 @@
+apiVersion: v2
+name: qa-service
+description: QA practice stack — gateway + backend (one image, two profiles) + redis + httpbin + whoami
+type: application
+# version = the chart's own version (bump when the templates change)
+version: 0.1.0
+# appVersion = the default app version shipped (overridable via values.app.version)
+appVersion: "1.0.0"

@@ -1,0 +1,43 @@
+# Drop the per-PR ArangoDB database when the environment is torn down (PR closed/merged).
+#
+# ⚠️ KEY GOTCHA: this uses ArgoCD's *PostDelete* hook, NOT Helm's `pre-delete`.
+# ArgoCD never runs `helm uninstall` (it just deletes rendered manifests), so it IGNORES Helm
+# delete hooks. If you only wrote a Helm pre-delete hook, your databases would leak forever.
+# PostDelete fires when the PR's ArgoCD Application is removed.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-db-drop
+  annotations:
+    "argocd.argoproj.io/hook": PostDelete
+    "argocd.argoproj.io/hook-delete-policy": HookSucceeded
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: drop-db
+          image: curlimages/curl:8.11.0
+          env:
+            - name: DB_NAME
+              value: {{ .Values.database.name | quote }}
+            - name: ARANGO_URL
+              value: {{ .Values.database.url | quote }}
+            - name: ADMIN_PW
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.adminSecret }}
+                  key: password
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "Dropping database '$DB_NAME' ..."
+              # 200 = dropped, 404 = already gone. Both count as success for teardown.
+              code=$(curl -s -o /dev/null -w '%{http_code}' -u "root:$ADMIN_PW" \
+                -X DELETE "$ARANGO_URL/_api/database/$DB_NAME")
+              case "$code" in
+                200|404) echo "gone." ;;
+                *)       echo "unexpected status $code" >&2; exit 1 ;;
+              esac

@@ -1,0 +1,50 @@
+# Provision a per-PR ArangoDB database on a SHARED Arango server.
+#
+# Lifecycle: runs as a Helm pre-install/pre-upgrade hook. Under ArgoCD this is translated to a
+# PreSync hook, so it runs BEFORE the app is synced — the database exists by the time the app starts.
+#
+# This is a REFERENCE example (uses Helm {{ }} placeholders). To use it, drop it into a chart's
+# templates/ folder and provide the referenced values.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-db-create
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"                                  # lower weight = runs earlier
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: create-db
+          image: curlimages/curl:8.11.0
+          env:
+            - name: DB_NAME
+              value: {{ .Values.database.name | quote }}          # e.g. "pr-5" — from per-PR values
+            - name: ARANGO_URL
+              value: {{ .Values.database.url | quote }}           # e.g. http://arango.shared:8529
+            - name: ADMIN_USER
+              value: root
+            - name: ADMIN_PW
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.adminSecret }}        # shared-DB admin creds (a Secret)
+                  key: password
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "Creating database '$DB_NAME' on $ARANGO_URL ..."
+              # IDEMPOTENT: POST to create; 201 = created, 409 = already exists (fine on a re-sync).
+              code=$(curl -s -o /dev/null -w '%{http_code}' -u "$ADMIN_USER:$ADMIN_PW" \
+                -X POST "$ARANGO_URL/_api/database" \
+                -H 'Content-Type: application/json' \
+                -d "{\"name\":\"$DB_NAME\"}")
+              case "$code" in
+                201) echo "created." ;;
+                409) echo "already exists — ok." ;;
+                *)   echo "unexpected status $code" >&2; exit 1 ;;
+              esac
