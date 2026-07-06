@@ -10,7 +10,7 @@ app:
     tag: dev                 # local image imported into k3d; CI will set this to a commit SHA
     pullPolicy: IfNotPresent # use the imported image; don't try to pull from a registry
   # The version string surfaced at /hello. This is what you watch change during a rolling update.
-  version: "1.0.0"
+  version: "1.1.0"
 
 # ---- Gateway: public role, sits behind the Ingress ----
 gateway:
