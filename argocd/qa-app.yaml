@@ -1,0 +1,24 @@
+# The ArgoCD Application: "watch this repo/branch/path, keep the cluster matching it."
+# This is the GitOps controller's marching order for our qa environment.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: qa
+  namespace: argocd                                # Applications themselves live in the argocd namespace
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io       # deleting this Application also deletes its workloads
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/PeekAndPoke/k8s-training.git
+    targetRevision: main                           # the branch = the source of truth
+    path: charts/qa-service                        # the Helm chart to render (ArgoCD runs `helm template`)
+  destination:
+    server: https://kubernetes.default.svc         # "in-cluster" (this same cluster)
+    namespace: qa                                  # where the rendered workloads go
+  syncPolicy:
+    automated:
+      prune: true        # if a resource is removed from Git, delete it from the cluster
+      selfHeal: true     # if someone hand-edits the live cluster, revert it back to Git
+    syncOptions:
+      - CreateNamespace=true
